@@ -4,25 +4,28 @@ import threading
 nickname = input("Choose a nickname: ")
 
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(('127.0.0.1', 55555))
+client.connect(("127.0.0.1", 55555))
 
-def receive():
+
+def receive() -> None:
     while True:
         try:
-            message = client.recv(1024).decode('ascii')
-            if message == 'NICK':
-                client.send(nickname.encode('ascii'))
+            message = client.recv(1024).decode("ascii")
+            if message == "NICK":
+                client.send(nickname.encode("ascii"))
             else:
                 print(message)
-        except:
+        except Exception:
             print("An error occured!")
             client.close()
             break
 
-def write():
+
+def write() -> None:
     while True:
         message = f'{nickname}: {input("")}'
-        client.send(message.encode('ascii'))
+        client.send(message.encode("ascii"))
+
 
 receive_thread = threading.Thread(target=receive)
 receive_thread.start()
