@@ -1,54 +1,63 @@
-import threading
-import socket
+# TODO: thread safety
+# TODO: how much to recv()
 
-host = "127.0.0.1"  # localhost
+import dataclasses
+import socket
+import threading
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ClientSocket:
+    # TODO: add send(), recv()
+    sock: socket.socket
+    address: str
+    username: str
+
+
+host = "127.0.0.1"
 port = 55555
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((host, port))
 server.listen()
 
-clients: list[socket.socket] = []
-nicknames: list[str] = []
+client_sockets: set[ClientSocket] = set()
 
 
 def broadcast(message: bytes) -> None:
-    for client in clients:
-        client.send(message)
+    for client in client_sockets:
+        client.sock.send(message)
 
 
-def handle(client: socket.socket) -> None:
-    while True:
-        try:
-            message = client.recv(1024)
+def handle(client: ClientSocket) -> None:
+    try:
+        while True:
+            message = client.sock.recv(1024)
             broadcast(message)
-        except Exception:
-            index = clients.index(client)
-            clients.remove(client)
-            client.close()
-            nickname = nicknames[index]
-            broadcast(f"{nickname} left the chat!".encode("ascii"))
-            nicknames.remove(nickname)
-            break
+    except Exception:
+        client.sock.close()
+        client_sockets.remove(client)
+    finally:
+        # FIXME: new client sees message about old client leaving
+        broadcast(f"{client.username} left the chat!".encode())
 
 
-def receive() -> None:
+def main() -> int:
     while True:
         client, address = server.accept()
-        print(f"Connected with {str(address)}")
+        print(f"Connected with {address}")
 
-        client.send("NICK".encode("ascii"))
-        nickname = client.recv(1024).decode("ascii")
-        nicknames.append(nickname)
-        clients.append(client)
+        client.send("NICK".encode())
+        nickname = client.recv(1024).decode()
+        s = ClientSocket(sock=client, address=address, username=nickname)
+        client_sockets.add(s)
+        broadcast(f"{nickname} joined the chat!".encode())
+        client.send("Connected to the server!".encode())
 
-        print(f"Nickname of the client is {nickname}!")
-        broadcast(f"{nickname} joined the chat!".encode("ascii"))
-        client.send("Connected to the server!".encode("ascii"))
-
-        thread = threading.Thread(target=handle, args=(client,))
+        thread = threading.Thread(target=handle, args=(s,))
         thread.start()
+    return 0
 
 
-print("Server is listening...")
-receive()
+if __name__ == "__main__":
+    raise SystemExit(main())
