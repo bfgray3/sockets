@@ -21,12 +21,15 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((host, port))
 server.listen()
 
+lock = threading.Lock()
+
 client_sockets: set[ClientSocket] = set()
 
 
 def broadcast(message: bytes) -> None:
-    for client in client_sockets:
-        client.sock.send(message)
+    with lock:
+        for client in client_sockets:
+            client.sock.send(message)
 
 
 def handle(client: ClientSocket) -> None:
@@ -35,8 +38,9 @@ def handle(client: ClientSocket) -> None:
             message = client.sock.recv(1024)
             broadcast(message)
     except Exception:
-        client.sock.close()
-        client_sockets.remove(client)
+        with lock:
+            client.sock.close()
+            client_sockets.remove(client)
     finally:
         # FIXME: new client sees message about old client leaving
         broadcast(f"{client.username} left the chat!".encode())
