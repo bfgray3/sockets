@@ -1,13 +1,13 @@
 # TODO: handle when server crashes
-# TODO: thread safety
+# TODO: thread safety/locks
 # TODO: how much to recv()
 # TODO: logging instead of print()
 # TODO: add functionality for client to leave
-# TODO: need to get rid of thread from the dict once it's done
+# TODO: keep track of futures?
 
+import concurrent.futures
 import dataclasses
 import socket
-import threading
 from collections.abc import Iterable
 
 # class Keywords(enum.StrEnum):
@@ -27,15 +27,19 @@ class Clients:
     def __init__(
         self, clients: Iterable[ClientSocket] = (), max_num_clients: int = 5
     ) -> None:
-        # TODO: only add up to max
         self._max_num_clients = max_num_clients
-        self._clients: dict[ClientSocket, threading.Thread] = {
-            client: threading.Thread(target=self._handle_one, kwargs={"client": client})
-            for client in clients
-        }
+        self._clients = set()
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_num_clients
+        )
         # TODO: don't start threads in __init__()
-        for thread in self._clients.values():
-            thread.start()
+        for i, client in enumerate(clients, start=1):
+            if i == self._max_num_clients:
+                break  # TODO: warn ignoring the rest
+            # TODO: next three lines should be made into a function and reused in add()
+            self._clients.add(client)
+            future = self._thread_pool.submit(self._handle_one, client=client)
+            future.add_done_callback(lambda f: self._clients.remove(f.result()))
 
     def broadcast(self, message: bytes) -> None:
         for client in self._clients:
@@ -50,11 +54,11 @@ class Clients:
         )
         client.sock.send("Connected to the server!".encode())
         self.broadcast(f"{client.username} joined the chat!".encode())
-        thread = threading.Thread(target=self._handle_one, kwargs={"client": client})
-        thread.start()
-        self._clients[client] = thread
+        self._clients.add(client)
+        future = self._thread_pool.submit(self._handle_one, client=client)
+        future.add_done_callback(lambda f: self._clients.remove(f.result()))
 
-    def _handle_one(self, client: ClientSocket) -> None:
+    def _handle_one(self, client: ClientSocket) -> ClientSocket:
         while True:
             try:
                 self.broadcast(client.sock.recv(1024))
@@ -63,13 +67,14 @@ class Clients:
                 self.broadcast(
                     f"{client.username} left the chat!".encode()
                 )  # FIXME: this doesn't run when expected
-                break
+                return client
 
     @property
     def num_clients(self) -> int:
         return len(self._clients)
 
 
+# TODO: make Server class
 def accept_connection(server: socket.socket) -> ClientSocket:
     client, address = server.accept()
     ip, port = address
@@ -87,10 +92,7 @@ def main() -> int:
     clients = Clients()
 
     while True:
-        client = accept_connection(server)
-        clients.add(client)
-        # the above needs to be in a while True. need to already have started the while True in the threadpool that
-        # sees updates in self._clients and has a while True for recv() and broadcast()
+        clients.add(accept_connection(server))
 
     return 0
 
