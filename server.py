@@ -1,14 +1,20 @@
 # TODO: handle when server crashes
 # TODO: thread safety/locks
 # TODO: how much to recv()
-# TODO: logging instead of print()
 # TODO: add functionality for client to leave
 # TODO: keep track of futures?
 
 import concurrent.futures
 import dataclasses
+import logging
+import os
 import socket
 from collections.abc import Iterable
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 # class Keywords(enum.StrEnum):
 #     USERNAME = enum.auto()
@@ -20,6 +26,9 @@ class ClientSocket:
     ip: str
     port: int
     username: str
+
+    def close(self) -> None:
+        self.sock.close()
 
     def send(self, s: str, /) -> None:
         self.sock.send(s.encode())
@@ -52,10 +61,16 @@ class Clients:
 
     def add(self, client: ClientSocket) -> None:
         if self.num_clients == self._max_num_clients:
-            # TODO: send message to client there's no room, close socket
-            ...
-        print(
-            "Added client", client.username, "at IP", client.ip, "and port", client.port
+            logger.warning("Room is full, unable to add new client.")
+            client.send("Room is full, try again later.")
+            client.close()
+            return None
+
+        logger.info(
+            "Added client %s at IP %s and port %d.",
+            client.username,
+            client.ip,
+            client.port,
         )
         client.send("Connected to the server!")
         self.broadcast(f"{client.username} joined the chat!")
@@ -68,7 +83,7 @@ class Clients:
             try:
                 self.broadcast(client.recv())
             except Exception:
-                client.sock.close()
+                client.close()
                 self.broadcast(
                     f"{client.username} left the chat!"
                 )  # FIXME: this doesn't run when expected
@@ -79,25 +94,39 @@ class Clients:
         return len(self._clients)
 
 
-# TODO: make Server class
-def accept_connection(server: socket.socket) -> ClientSocket:
-    client, address = server.accept()
-    ip, port = address
+class Server:
+    def __init__(self) -> None:
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._clients = Clients()
 
-    client.send("USERNAME".encode())
-    username = client.recv(1024).decode()
-    return ClientSocket(sock=client, ip=ip, port=port, username=username)
+    def bind(self, ip: str | None, port: int | None) -> None:
+        if ip is None:
+            ip = os.environ["IP"]
+        if port is None:
+            port = int(os.environ["PORT"])
+        self._socket.bind((ip, port))
+
+    def listen(self) -> None:
+        self._socket.listen()
+
+    def accept_connection(self) -> None:
+        client, address = self._socket.accept()
+        ip, port = address
+
+        client.send("USERNAME".encode())
+        username = client.recv(1024).decode()
+        self._clients.add(
+            ClientSocket(sock=client, ip=ip, port=port, username=username)
+        )
 
 
 def main() -> int:
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 55555))
+    server = Server()
+    server.bind(ip="127.0.0.1", port=55555)
     server.listen()
 
-    clients = Clients()
-
     while True:
-        clients.add(accept_connection(server))
+        server.accept_connection()
 
     return 0
 
