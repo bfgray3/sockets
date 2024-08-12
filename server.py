@@ -16,11 +16,16 @@ from collections.abc import Iterable
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ClientSocket:
-    # TODO: add send(), recv()
     sock: socket.socket
     ip: str
     port: int
     username: str
+
+    def send(self, s: str, /) -> None:
+        self.sock.send(s.encode())
+
+    def recv(self, n: int = 1024) -> str:
+        return self.sock.recv(n).decode()
 
 
 class Clients:
@@ -41,9 +46,9 @@ class Clients:
             future = self._thread_pool.submit(self._handle_one, client=client)
             future.add_done_callback(lambda f: self._clients.remove(f.result()))
 
-    def broadcast(self, message: bytes) -> None:
+    def broadcast(self, message: str) -> None:
         for client in self._clients:
-            client.sock.send(message)
+            client.send(message)
 
     def add(self, client: ClientSocket) -> None:
         if self.num_clients == self._max_num_clients:
@@ -52,8 +57,8 @@ class Clients:
         print(
             "Added client", client.username, "at IP", client.ip, "and port", client.port
         )
-        client.sock.send("Connected to the server!".encode())
-        self.broadcast(f"{client.username} joined the chat!".encode())
+        client.send("Connected to the server!")
+        self.broadcast(f"{client.username} joined the chat!")
         self._clients.add(client)
         future = self._thread_pool.submit(self._handle_one, client=client)
         future.add_done_callback(lambda f: self._clients.remove(f.result()))
@@ -61,11 +66,11 @@ class Clients:
     def _handle_one(self, client: ClientSocket) -> ClientSocket:
         while True:
             try:
-                self.broadcast(client.sock.recv(1024))
+                self.broadcast(client.recv())
             except Exception:
                 client.sock.close()
                 self.broadcast(
-                    f"{client.username} left the chat!".encode()
+                    f"{client.username} left the chat!"
                 )  # FIXME: this doesn't run when expected
                 return client
 
