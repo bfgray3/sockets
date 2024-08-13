@@ -33,7 +33,7 @@ class ClientSocket:
     def send(self, s: str, /) -> None:
         self.sock.send(s.encode())
 
-    def recv(self, n: int = 1024) -> str:
+    def recv(self, n: int = 2**10) -> str:
         return self.sock.recv(n).decode()
 
 
@@ -42,7 +42,7 @@ class Clients:
         self, clients: Iterable[ClientSocket] = (), max_num_clients: int = 5
     ) -> None:
         self._max_num_clients = max_num_clients
-        self._clients = set()
+        self._clients: set[ClientSocket] = set()
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_num_clients
         )
@@ -50,10 +50,12 @@ class Clients:
         for i, client in enumerate(clients, start=1):
             if i == self._max_num_clients:
                 break  # TODO: warn ignoring the rest
-            # TODO: next three lines should be made into a function and reused in add()
-            self._clients.add(client)
-            future = self._thread_pool.submit(self._handle_one, client=client)
-            future.add_done_callback(lambda f: self._clients.remove(f.result()))
+            self._start_handling_one_client(client)
+
+    def _start_handling_one_client(self, client: ClientSocket) -> None:
+        self._clients.add(client)
+        future = self._thread_pool.submit(self._handle_one, client=client)
+        future.add_done_callback(lambda f: self._clients.remove(f.result()))
 
     def broadcast(self, message: str) -> None:
         for client in self._clients:
@@ -61,9 +63,7 @@ class Clients:
 
     def add(self, client: ClientSocket) -> None:
         if self.num_clients == self._max_num_clients:
-            logger.warning("Room is full, unable to add new client.")
-            client.send("Room is full, try again later.")
-            client.close()
+            self._reject_client_since_full(client)
             return None
 
         logger.info(
@@ -74,9 +74,12 @@ class Clients:
         )
         client.send("Connected to the server!")
         self.broadcast(f"{client.username} joined the chat!")
-        self._clients.add(client)
-        future = self._thread_pool.submit(self._handle_one, client=client)
-        future.add_done_callback(lambda f: self._clients.remove(f.result()))
+        self._start_handling_one_client(client)
+
+    def _reject_client_since_full(self, client: ClientSocket) -> None:
+        logger.warning("Room is full, unable to add new client.")
+        client.send("Room is full, try again later.")
+        client.close()
 
     def _handle_one(self, client: ClientSocket) -> ClientSocket:
         while True:
@@ -112,9 +115,11 @@ class Server:
     def accept_connection(self) -> None:
         client, address = self._socket.accept()
         ip, port = address
+        self._add_client(client, ip, port)
 
+    def _add_client(self, client: socket.socket, ip: str, port: int) -> None:
         client.send("USERNAME".encode())
-        username = client.recv(1024).decode()
+        username = client.recv(2**10).decode()
         self._clients.add(
             ClientSocket(sock=client, ip=ip, port=port, username=username)
         )
