@@ -7,9 +7,7 @@
 import concurrent.futures
 import dataclasses
 import logging
-import os
 import socket
-from collections.abc import Iterable
 
 
 logger = logging.getLogger(__name__)
@@ -38,19 +36,12 @@ class ClientSocket:
 
 
 class Clients:
-    def __init__(
-        self, clients: Iterable[ClientSocket] = (), max_num_clients: int = 5
-    ) -> None:
+    def __init__(self, max_num_clients: int = 5) -> None:
         self._max_num_clients = max_num_clients
         self._clients: set[ClientSocket] = set()
         self._thread_pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=max_num_clients
         )
-        # TODO: don't start threads in __init__()
-        for i, client in enumerate(clients, start=1):
-            if i == self._max_num_clients:
-                break  # TODO: warn ignoring the rest
-            self._start_handling_one_client(client)
 
     def _start_handling_one_client(self, client: ClientSocket) -> None:
         self._clients.add(client)
@@ -102,11 +93,7 @@ class Server:
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._clients = Clients()
 
-    def bind(self, ip: str | None, port: int | None) -> None:
-        if ip is None:
-            ip = os.environ["IP"]
-        if port is None:
-            port = int(os.environ["PORT"])
+    def bind(self, ip: str, port: int) -> None:
         self._socket.bind((ip, port))
 
     def listen(self) -> None:
@@ -114,8 +101,7 @@ class Server:
 
     def accept_connection(self) -> None:
         client, address = self._socket.accept()
-        ip, port = address
-        self._add_client(client, ip, port)
+        self._add_client(client, *address)
 
     def _add_client(self, client: socket.socket, ip: str, port: int) -> None:
         client.send("USERNAME".encode())
