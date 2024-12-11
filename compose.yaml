@@ -1,0 +1,13 @@
+services:
+  server:
+    image: "python:3.12"
+    volumes:
+      - ./:/usr/src/sockets
+    env_file:
+      - .env
+  client:
+    image: "python:3.12"
+    volumes:
+      - ./:/usr/src/sockets
+    env_file:
+      - .env
